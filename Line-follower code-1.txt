@@ -1,0 +1,240 @@
+#include <SD.h>
+#include <SPI.h>
+#include <TensorFlowLite.h>  // Include TensorFlow Lite library
+
+// Pin Definitions
+#define SENSOR_1 34
+#define SENSOR_2 35
+#define SENSOR_3 32
+#define SENSOR_4 33
+#define SD_CS 5  // Chip Select pin for SD card module
+
+// Motor pins
+#define MOTOR_LEFT1 25
+#define MOTOR_LEFT2 26
+#define MOTOR_RIGHT1 27
+#define MOTOR_RIGHT2 14
+#define ENA 12
+#define ENB 13
+
+// TensorFlow Lite model
+#include "model_data.h"  // Include the pre-trained model
+
+void setup() {
+    // Initialize serial communication
+    Serial.begin(115200);
+
+    // Initialize SD card
+    if (!SD.begin(SD_CS)) {
+        Serial.println("SD card initialization failed!");
+        return;
+    }
+    Serial.println("SD card initialized.");
+
+    // Initialize motor pins
+    pinMode(MOTOR_LEFT1, OUTPUT);
+    pinMode(MOTOR_LEFT2, OUTPUT);
+    pinMode(MOTOR_RIGHT1, OUTPUT);
+    pinMode(MOTOR_RIGHT2, OUTPUT);
+    pinMode(ENA, OUTPUT);
+    pinMode(ENB, OUTPUT);
+
+    // Load TensorFlow Lite model from SD card
+    File modelFile = SD.open("/model.tflite");
+    if (!modelFile) {
+        Serial.println("Failed to open model file!");
+        return;
+    }
+    size_t modelSize = modelFile.size();
+    uint8_t* modelData = new uint8_t[modelSize];
+    modelFile.read(modelData, modelSize);
+    modelFile.close();
+
+    // Initialize TensorFlow Lite interpreter
+    tflite::MicroErrorReporter micro_error_reporter;
+    tflite::ErrorReporter* error_reporter = &micro_error_reporter;
+    const tflite::Model* model = tflite::GetModel(modelData);
+    if (model->version() != TFLITE_SCHEMA_VERSION) {
+        Serial.println("Model schema version mismatch!");
+        return;
+    }
+
+    // Set up TensorFlow Lite interpreter
+    static tflite::MicroInterpreter static_interpreter(model, tensor_arena, kTensorArenaSize, error_reporter);
+    interpreter = &static_interpreter;
+    interpreter->AllocateTensors();
+
+    Serial.println("Model loaded and initialized.");
+}
+
+void loop() {
+    // Read sensor values
+    int s1 = analogRead(SENSOR_1);
+    int s2 = analogRead(SENSOR_2);
+    int s3 = analogRead(SENSOR_3);
+    int s4 = analogRead(SENSOR_4);
+
+    // Log sensor data to SD card
+    logSensorData(s1, s2, s3, s4);
+
+    // Prepare input for TensorFlow Lite model
+    float input[4] = {s1, s2, s3, s4};
+    float output[2];  // Output: leftSpeed, rightSpeed
+
+    // Run inference
+    runInference(input, output);
+
+    // Set motor speeds based on model output
+    int leftSpeed = output[0];
+    int rightSpeed = output[1];
+    analogWrite(ENA, leftSpeed);
+    analogWrite(ENB, rightSpeed);
+    digitalWrite(MOTOR_LEFT1, HIGH);
+    digitalWrite(MOTOR_LEFT2, LOW);
+    digitalWrite(MOTOR_RIGHT1, HIGH);
+    digitalWrite(MOTOR_RIGHT2, LOW);
+
+    // Small delay for stability
+    delay(10);
+}
+
+void logSensorData(int s1, int s2, int s3, int s4) {
+    File dataFile = SD.open("/datalog.csv", FILE_WRITE);
+    if (dataFile) {
+        dataFile.print(s1);
+        dataFile.print(",");
+        dataFile.print(s2);
+        dataFile.print(",");
+        dataFile.print(s3);
+        dataFile.print(",");
+        dataFile.println(s4);
+        dataFile.close();
+    } else {
+        Serial.println("Error opening datalog.csv!");
+    }
+}
+
+void runInference(float* input, float* output) {
+    // Get input tensor
+    TfLiteTensor* input_tensor = interpreter->input(0);
+    for (int i = 0; i < 4; i++) {
+        input_tensor->data.f[i] = input[i];
+    }
+
+    // Run inference
+    interpreter->Invoke();
+
+    // Get output tensor
+    TfLiteTensor* output_tensor = interpreter->output(0);
+    output[0] = output_tensor->data.f[0];  // leftSpeed
+    output[1] = output_tensor->data.f[1];  // rightSpeed
+}
+
+
+
+
+
+??????????????????????????????????????????????????????????????????????????????????????????????
+
+
+
+MACHINE LEARNING TRAINING MODEL 
+
+//MPU6050_model.ino
+#include <TensorFlowLite_ESP32.h>
+#include "tensorflow/lite/experimental/micro/micro_error_reporter.h"
+#include "tensorflow/lite/experimental/micro/micro_interpreter.h"
+#include "tensorflow/lite/experimental/micro/kernels/all_ops_resolver.h"
+#include "tensorflow/lite/experimental/micro/micro_mutable_op_resolver.h"
+#include "tensorflow/lite/schema/schema_generated.h"
+#include "tensorflow/lite/version.h"
+#include "tensorflow/lite/experimental/micro/kernels/micro_ops.h"
+#include "model.h"
+#include "Wire.h"
+#define MPU_ADDR 0x68 //address MPU6050
+
+int16_t accX, accY, accZ;
+float rangePerDigit = .000061f;
+float NormAccX, NormAccY, NormAccZ;
+float ay[100];
+
+namespace {
+tflite::ErrorReporter* error_reporter = nullptr;
+const tflite::Model* model = nullptr;
+tflite::MicroInterpreter* interpreter = nullptr;
+TfLiteTensor* input = nullptr;
+TfLiteTensor* output = nullptr;
+constexpr int kTensorArenaSize = 70 * 1024;
+uint8_t tensor_arena[kTensorArenaSize];
+}  // namespace
+
+void setup() {
+
+  Serial.begin(115200);
+  while (!Serial)
+    delay(10);
+  Wire.begin();
+  Wire.beginTransmission(MPU_ADDR);
+  Wire.write(0x6B); //Power Management untuk MPU6050
+  Wire.write(0); //Membangunkan MPU
+  Wire.endTransmission(true);
+
+  static tflite::MicroErrorReporter micro_error_reporter;
+  error_reporter = &micro_error_reporter;
+
+  model = tflite::GetModel(g_model);
+  if (model->version() != TFLITE_SCHEMA_VERSION) {
+    error_reporter->Report(
+      "Model provided is schema version %d not equal "
+      "to supported version %d.",
+      model->version(), TFLITE_SCHEMA_VERSION);
+    return;
+  }
+
+  ///////////////////////////////////////
+  static tflite::ops::micro::AllOpsResolver resolver;
+
+  // Build an interpreter to run the model with.
+  static tflite::MicroInterpreter static_interpreter(
+    model, resolver, tensor_arena, kTensorArenaSize, error_reporter);
+  static tflite::MicroMutableOpResolver micro_mutable_op_resolver;
+  micro_mutable_op_resolver.AddBuiltin(
+    tflite::BuiltinOperator_FULLY_CONNECTED,
+    tflite::ops::micro::Register_FULLY_CONNECTED());
+
+  //  static tflite::MicroInterpreter static_interpreter(model, micro_mutable_op_resolver, tensor_arena, kTensorArenaSize, error_reporter);
+  interpreter = &static_interpreter;
+
+
+  TfLiteStatus allocate_status = interpreter->AllocateTensors();
+  if (allocate_status != kTfLiteOk) {
+    error_reporter->Report("AllocateTensors() failed");
+    return;
+  }
+
+  input = interpreter->input(0);
+  output = interpreter->output(0);
+  Serial.print("setup complete");
+  delay(500);
+}
+
+void loop() {
+  for (int i = 0; i < 100; i++) {
+    Wire.beginTransmission(MPU_ADDR);
+    Wire.write(0x3B); //Alamat Awal
+    Wire.endTransmission(false); //Agar transimisi tetap berjalan
+    Wire.requestFrom(MPU_ADDR, 6, true);
+    accX = Wire.read() << 8 | Wire.read();
+    accY = Wire.read() << 8 | Wire.read();
+    accZ = Wire.read() << 8 | Wire.read();
+
+    //NormAccX = accX * rangePerDigit * 9.80665f;
+    NormAccY = accY * rangePerDigit * 9.80665f;
+    //NormAccZ = accZ * rangePerDigit * 9.80665f;
+    input->data.f[i] = NormAccY;
+    delay(2);
+  }
+  TfLiteStatus invoke_status = interpreter->Invoke();
+  float out = output->data.f[0];
+  Serial.println(out);
+}
