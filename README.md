@@ -67,11 +67,6 @@ The Line Follower Robot is an autonomous robot designed to follow a black line o
 
 ---
 
-## Circuit Diagram
-![Circuit Diagram](https://via.placeholder.com/800x600.png?text=Circuit+Diagram) <https://www.tinkercad.com/things/aCTpkUEMh1X-pid-control-line-follower-robot-/editel?returnTo=https%3A%2F%2Fwww.tinkercad.com%2Fdashboard>
-
----
-
 ## Installation
 1. **Hardware Setup:**
    - Assemble the robot chassis (a wooden case) and mount the motors, sensors, and microcontroller.
