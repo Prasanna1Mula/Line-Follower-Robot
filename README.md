@@ -66,6 +66,8 @@ The Line Follower Robot is an autonomous robot designed to follow a black line o
 - Jumper Wires
 
 ---
+## Circuit Diagram 
+![Alt text](Screenshot(61).png)
 
 ## Installation
 1. **Hardware Setup:**
